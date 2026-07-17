@@ -1,0 +1,337 @@
+using watsonxorchestrate chat models within langchain
+> ## Documentation Index
+> Fetch the complete documentation index at: https://developer.watson-orchestrate.ibm.com/llms.txt
+> Use this file to discover all available pages before exploring further.
+
+# Chat models
+
+## Overview
+
+Chat models is part of the Agentic SDK LangChain integration. It provides a chat model interface that routes chat completion requests through watsonx Orchestrate using a consistent SDK interface. It aligns with the SDK runtime model for handling authentication, context, and API routing, and supports chat-based interactions, structured outputs, tool calling, and streaming responses. Chat models support the same API as langchain's chat abstractions, and may be used as a direct replacement for running inside Orchestrate.
+
+### Initialization patterns
+
+#### From Instance Credentials (Standalone/Runs-Elsewhere Mode)
+
+For standalone scripts or applications outside watsonx Orchestrate runtime:
+
+```python PYTHON [expandable] theme={null}
+from ibm_watsonx_orchestrate_sdk.langchain import ChatWxO
+
+llm = ChatWxO.from_instance_credentials(
+    instance_url="https://your-instance.cloud.ibm.com",
+    api_key="your-wxo-api-key",
+    model="watsonx/meta-llama/llama-3-2-90b-vision-instruct",
+    temperature=0.7,
+    max_tokens=1000
+)
+
+response = llm.invoke("Tell me a joke about programming")
+print(response.content)
+```
+
+#### Direct initialization (Standalone/Runs-Elsewhere Mode) (Advanced)
+
+See ['Advanced Configuration'](#advanced-configuration) section for more parameters.
+
+```python PYTHON [expandable] theme={null}
+from ibm_watsonx_orchestrate_sdk.langchain import ChatWxO
+
+llm = ChatWxO(
+    instance_url="https://your-instance.cloud.ibm.com",
+    api_key="your-wxo-api-key",
+    model="watsonx/meta-llama/llama-3-2-90b-vision-instruct",
+    temperature=0.7,
+    max_tokens=1000
+)
+
+response = llm.invoke("Tell me a joke about programming")
+print(response.content)
+```
+
+#### From RunnableConfig (Runtime/Runs-On Mode) (recommended)
+
+For LangGraph agents with RunnableConfig:
+
+```python PYTHON [expandable] theme={null}
+from typing import Annotated, List, TypedDict
+from langchain_core.messages import BaseMessage
+from langgraph.graph import END, START, StateGraph
+from langgraph.graph.state import RunnableConfig
+from ibm_watsonx_orchestrate_sdk.langchain import ChatWxO
+
+class AgentState(TypedDict):
+    """Simple state with conversation history."""
+    messages: Annotated[List[BaseMessage], "conversation history"]
+
+def create_agent(config: RunnableConfig):
+    # NOTE: RunnableConfig is passed by WxO Runtime directly to agent's `create_agent()` function.
+
+    def tell_joke(state: AgentState):
+        llm = ChatWxO.from_runnable_config(
+            config=config,
+            model="watsonx/meta-llama/llama-3-2-90b-vision-instruct"
+        )
+        
+        response = llm.invoke("Tell me a joke about programming")
+        return {"messages": state["messages"] + [response]}
+
+    builder = StateGraph(AgentState)
+    builder.add_node("tell_joke", tell_joke)
+    builder.add_edge(START, "tell_joke")
+    builder.add_edge("tell_joke", END)
+    return builder
+```
+
+#### From Execution Context (Runtime/Runs-On Mode)
+
+When running inside a watsonx Orchestrate runtime with execution context:
+
+```python PYTHON [expandable] theme={null}
+from typing import Annotated, List, TypedDict
+from langchain_core.messages import BaseMessage
+from langgraph.graph import END, START, StateGraph
+from langgraph.graph.state import RunnableConfig
+from ibm_watsonx_orchestrate_sdk.langchain import ChatWxO
+
+class AgentState(TypedDict):
+    """Simple state with conversation history."""
+    messages: Annotated[List[BaseMessage], "conversation history"]
+
+def create_agent(config: RunnableConfig):
+    # NOTE: RunnableConfig is passed by WxO Runtime directly to agent's `create_agent()` function.
+ 
+    execution_context = config.get("configurable", {}).get("execution_context")
+
+    def ask_question(state: AgentState):
+        llm = ChatWxO.from_execution_context(
+            execution_context=execution_context,
+            model="watsonx/ibm/granite-3-8b-instruct"
+        )
+        
+        response = llm.invoke("What is the capital of France?")
+        return {"messages": state["messages"] + [response]}
+
+    builder = StateGraph(AgentState)
+    builder.add_node("ask_question", ask_question)
+    builder.add_edge(START, "ask_question")
+    builder.add_edge("ask_question", END)
+    return builder
+```
+
+#### watsonx Orchestrate Agentic Session
+
+For advanced use cases with pre-configured AgenticSession:
+
+```python PYTHON [expandable] theme={null}
+from ibm_watsonx_orchestrate_sdk.langchain import ChatWxO
+from ibm_watsonx_orchestrate_sdk.client import Client
+
+# Create client and get session
+client = Client.from_instance_credentials(
+    instance_url="https://your-instance.cloud.ibm.com",
+    api_key="your-wxo-api-key"
+)
+
+llm = ChatWxO.from_session(
+    session=client.session,
+    model="watsonx/ibm/granite-3-8b-instruct"
+)
+
+response = llm.invoke("Hello!")
+print(response.content)
+```
+
+### Usage examples
+
+#### Basic chat completion
+
+```python PYTHON [expandable] theme={null}
+from ibm_watsonx_orchestrate_sdk.langchain import ChatWxO
+
+llm = ChatWxO.from_instance_credentials(
+    instance_url="https://your-instance.cloud.ibm.com",
+    api_key="your-api-key",
+    model="watsonx/ibm/granite-3-8b-instruct"
+)
+
+# Simple string input
+response = llm.invoke("What is machine learning?")
+print(response.content)
+
+# Message format
+from langchain_core.messages import HumanMessage, SystemMessage
+
+messages = [
+    SystemMessage(content="You are a helpful AI assistant."),
+    HumanMessage(content="Explain quantum computing in simple terms.")
+]
+
+response = llm.invoke(messages)
+print(response.content)
+```
+
+#### Streaming Responses
+
+```python PYTHON [expandable] theme={null}
+# Synchronous streaming
+for chunk in llm.stream("Write a short story about a robot"):
+    print(chunk.content, end="", flush=True)
+
+# Async streaming
+import asyncio
+
+async def stream_example():
+    async for chunk in llm.astream("Explain photosynthesis"):
+        print(chunk.content, end="", flush=True)
+
+asyncio.run(stream_example())
+```
+
+#### Tool calling
+
+```python PYTHON [expandable] theme={null}
+from pydantic import BaseModel, Field
+
+class GetWeather(BaseModel):
+    """Get the current weather for a location"""
+    location: str = Field(description="City and state, e.g. San Francisco, CA")
+    unit: str = Field(description="Temperature unit", enum=["celsius", "fahrenheit"])
+
+class GetPopulation(BaseModel):
+    """Get the population of a city"""
+    location: str = Field(description="City and state, e.g. San Francisco, CA")
+
+# Bind tools to the model
+llm_with_tools = llm.bind_tools([GetWeather, GetPopulation])
+
+response = llm_with_tools.invoke("What's the weather and population in NYC?")
+
+# Access tool calls
+for tool_call in response.tool_calls:
+    print(f"Tool: {tool_call['name']}")
+    print(f"Args: {tool_call['args']}")
+```
+
+#### Structured output
+
+```python PYTHON [expandable] theme={null}
+from pydantic import BaseModel, Field
+
+class Person(BaseModel):
+    """Information about a person"""
+    name: str = Field(description="Person's full name")
+    age: int = Field(description="Person's age in years")
+    occupation: str = Field(description="Person's job or profession")
+    hobbies: list[str] = Field(description="List of hobbies")
+
+# Create structured output model
+structured_llm = llm.with_structured_output(Person)
+
+# Get structured response
+person = structured_llm.invoke(
+    "Tell me about a software engineer named Alice who is 28 years old "
+    "and enjoys hiking, reading, and photography."
+)
+
+print(f"Name: {person.name}")
+print(f"Age: {person.age}")
+print(f"Occupation: {person.occupation}")
+print(f"Hobbies: {', '.join(person.hobbies)}")
+```
+
+#### Batch processing
+
+```python PYTHON [expandable] theme={null}
+# Process multiple inputs in parallel
+messages_batch = [
+    "What is Python?",
+    "What is JavaScript?",
+    "What is Rust?"
+]
+
+responses = llm.batch(messages_batch)
+
+for i, response in enumerate(responses):
+    print(f"Q{i+1}: {messages_batch[i]}")
+    print(f"A{i+1}: {response.content}\n")
+
+# Async batch processing
+async def batch_example():
+    responses = await llm.abatch(messages_batch)
+    return responses
+
+asyncio.run(batch_example())
+```
+
+#### Advanced Configuration
+
+Note: additional params can be passed via direct initialization (`ChatWxO.__init__()`) or any of the helpers (`from_instance_credentials`, `from_runnable_config`, `from_execution_context`, `from_session`).
+
+```python PYTHON [expandable] theme={null}
+llm = ChatWxO.from_instance_credentials(
+    instance_url="https://your-instance.cloud.ibm.com",
+    api_key="your-api-key",
+    model="watsonx/meta-llama/llama-3-2-90b-vision-instruct",
+    
+    # Model parameters
+    temperature=0.7,
+    max_tokens=2000,
+    top_p=0.9,
+    frequency_penalty=0.0,
+    presence_penalty=0.0,
+    
+    # Streaming configuration
+    streaming=True,
+    
+    # Request configuration
+    timeout=60.0,
+    max_retries=3
+)
+```
+
+### Supported Methods
+
+ChatOpenAI supports the following methods:
+
+* `invoke(messages)` - Synchronous chat completion
+* `ainvoke(messages)` - Async chat completion
+* `stream(messages)` - Synchronous streaming
+* `astream(messages)` - Async streaming
+* `batch(messages_list)` - Batch processing
+* `abatch(messages_list)` - Async batch processing
+* `bind_tools(tools)` - Bind tools/functions
+* `with_structured_output(schema`) - Structured output
+
+### Class Methods
+
+* `from_instance_credentials(instance_url, api_key, model, **kwargs)` - Create from instance credentials (standalone/runs-elsewhere)
+* `from_execution_context(execution_con text, model, **kwargs)` - Create from execution context (runtime/runs-on)
+* `from_session(session, model, **kwargs)` - Create from AgenticSession (runtime/runs-on)
+* `from_runnable_config(config, model, **kwargs)` - Create from RunnableConfig (LangGraph)
+
+### Chat model IDs
+
+Use the chat model ID formats returned by the watsonx Orchestrate `/models` endpoint:
+
+```python PYTHON theme={null}
+provider/model-name
+```
+
+Examples:
+
+* `watsonx/meta-llama/llama-3-2-90b-vision-instruct`
+* `watsonx/ibm/granite-3-8b-instruct`
+
+<Note>
+  - Chat models provides a drop-in replacement for chat model usage in LangChain-based agents.
+  - The model ID must follow the format returned by the platform.
+  - Authentication and request routing are handled through the SDK interface.
+</Note>
+
+### References
+
+* [Client](/sdk/client)
+* [Memory](./memory)
+* [Context](./context)
+* [Embeddings](/sdk/wxo_embeddings)

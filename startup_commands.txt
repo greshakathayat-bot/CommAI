@@ -1,0 +1,7 @@
+To start the backend; 
+- cd /Users/greshakathayat/Projects/CommAi
+- bash backend/start.sh
+
+To start the front end;
+- cd Users/greshakathayat/Projects/CommAi/frontend
+- npm run dev

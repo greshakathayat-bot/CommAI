@@ -1,0 +1,43 @@
+Overview: A tool that analyzes meeting audio transcripts and gathers updates 
+from each indivdiual in a given team and puts it in a centralized platform. 
+
+Context: 
+- Final version of this application will use teams, however for the purposes
+for this mvp development, we're gonna use mock data
+-You (Bob) will be responsible for building or producing the mock transcript 
+data.
+- That data will be the input into this system that we build.
+- This application will use carbon UI 
+- This application will be an MVP
+- Database tables and the database itself will run on my local machine
+- The database and the tables have not yet been developed
+- The updates are client feedback/requirements that are communicated to the 
+sellers.
+- The users of this application will be members of a sales team and each
+sales team member communicates with clients and will use this application to 
+take audio transcripts from meetings, individual notes and context for each
+ client account and clients themselves
+ - This system will take information from the discovery phase and find 
+ opportunities and will match it with potential solutions based on product
+ documentation.
+ - We will use an AI agent which will be build on langchain and the agent
+ will use MCP server to obtain information on product capabilities
+ - The watsonx Orchestrate Documentation MCP Server runs as a remote MCP 
+ server using streamablehttp at this address: https://developer.watson-orchestrate.ibm.com/mcp.
+- This is an example config:
+{
+    "mcpServers":{
+        "wxo-docs":{
+            "command":"uvx",
+            "args":[
+                "mcp-proxy",
+                "--transport",
+                "streamablehttp",
+                "https://developer.watson-orchestrate.ibm.com/mcp"
+            ]
+        }
+    }
+}
+- The langchain agent should use this MCP server to answer questions 
+- The model will be hosted on watxonx.orchestrate 
+- The documentation on how to use this on a langchain is included @orchestrate_langchain.txt
