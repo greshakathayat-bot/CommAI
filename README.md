@@ -13,6 +13,114 @@ CommAi/
 └── .env.example       # Template
 ```
 
+## Data Flow
+
+```mermaid
+flowchart TD
+    %% ── FRONTEND ─────────────────────────────────────────────────────────────
+    subgraph FE["React 19 Frontend  ·  :5173"]
+        direction TB
+        DASH["Dashboard\n/dashboard"]
+        ACCS["Accounts\n/accounts"]
+        ACCD["Account Detail\n/accounts/:id"]
+        TRNS["Transcripts\n/transcripts"]
+        TRND["Transcript Detail\n/transcripts/:id"]
+        OPPS["Opportunities\n/opportunities"]
+        APICL["api/client.ts  ·  axios\nbaseURL → /api"]
+        DASH & ACCS & ACCD & TRNS & TRND & OPPS --> APICL
+    end
+
+    %% ── FASTAPI ROUTERS ──────────────────────────────────────────────────────
+    subgraph API["FastAPI  ·  Uvicorn  ·  :8000"]
+        direction TB
+        subgraph ROUTER_ACCS["prefix /accounts"]
+            RA1["GET  /accounts/"]
+            RA2["GET  /accounts/:id  (joinload client + sales_rep)"]
+            RA3["POST /accounts/"]
+        end
+        subgraph ROUTER_CLIS["prefix /clients"]
+            RC1["GET  /clients/"]
+            RC2["GET  /clients/:id"]
+            RC3["POST /clients/"]
+        end
+        subgraph ROUTER_REPS["prefix /sales-reps"]
+            RR1["GET  /sales-reps/"]
+            RR2["GET  /sales-reps/:id"]
+            RR3["POST /sales-reps/"]
+        end
+        subgraph ROUTER_TRNS["prefix /transcripts"]
+            RT1["GET  /transcripts/  (?account_id filter)"]
+            RT2["GET  /transcripts/:id"]
+            RT3["GET  /transcripts/:id/updates"]
+            RT4["GET  /transcripts/:id/opportunities"]
+            RT5["POST /transcripts/"]
+        end
+        subgraph ROUTER_AGNT["prefix /agent"]
+            RG1["POST /agent/analyze  → BackgroundTask"]
+            RG2["GET  /agent/opportunities  (all, order by score↓)"]
+        end
+    end
+
+    %% ── ORM / SCHEMAS ────────────────────────────────────────────────────────
+    subgraph ORM["SQLAlchemy ORM  +  Pydantic v2 Schemas"]
+        direction LR
+        MOD["models.py\nSalesRep · Client · Account\nTranscript · ClientUpdate · Opportunity"]
+        SCH["schemas.py\n*Out · *Create\nfrom_attributes=True"]
+        MOD <--> SCH
+    end
+
+    %% ── POSTGRESQL ───────────────────────────────────────────────────────────
+    subgraph PG["PostgreSQL  ·  Docker  ·  :5432  ·  db: commai"]
+        direction TB
+        T_REPS[("sales_reps\nid · name · email · territory")]
+        T_CLIS[("clients\nid · company_name · industry · website")]
+        T_ACCS[("accounts\nid · sales_rep_id · client_id\naccount_name · stage · notes")]
+        T_TRNS[("transcripts\nid · account_id · sales_rep_id\ntitle · meeting_date · raw_text\nstatus: pending→processing→completed|failed")]
+        T_UPDS[("client_updates\nid · transcript_id · category\nsummary · verbatim_quote · speaker · priority")]
+        T_OPPS[("opportunities\nid · transcript_id · title · description\nmatched_product · matched_capability\nconfidence_score · status · agent_reasoning")]
+        T_REPS --> T_ACCS
+        T_CLIS --> T_ACCS
+        T_ACCS --> T_TRNS
+        T_REPS --> T_TRNS
+        T_TRNS --> T_UPDS
+        T_TRNS --> T_OPPS
+    end
+
+    %% ── AI PIPELINE ──────────────────────────────────────────────────────────
+    subgraph AIPIPE["LangChain AI Pipeline  ·  agent/analyzer.py"]
+        direction TB
+        STEP1["Step 1 · Extraction\nSystemMessage: EXTRACTION_SYSTEM_PROMPT\nHumanMessage: raw_text\n→ JSON { updates[], opportunities[] }"]
+        STEP2["Step 2 · MCP Enrichment  (per opportunity)\nSystemMessage: SOLUTION_MATCHING_SYSTEM_PROMPT\nHumanMessage: title + description\nllm.bind_tools(mcp_tools)\n→ matched_product · matched_capability\n  confidence_score · agent_reasoning"]
+        MCP_LOAD["_get_mcp_tools()\nStdioServerParameters\nuvx mcp-proxy --transport streamablehttp"]
+        STEP1 --> STEP2
+        MCP_LOAD --> STEP2
+    end
+
+    %% ── EXTERNAL IBM SERVICES ────────────────────────────────────────────────
+    subgraph IBM["IBM Cloud  ·  External"]
+        WXO["ChatWxO  (ibm-watsonx-orchestrate-sdk)\nwatsonx/ibm/granite-3-8b-instruct\ntemp=0.2  max_tokens=4000"]
+        MCP_SRV["wxo-docs MCP Server\ndeveloper.watson-orchestrate.ibm.com/mcp\nProduct capability tool registry"]
+    end
+
+    %% ── DATA FLOW EDGES ──────────────────────────────────────────────────────
+    APICL -->|"HTTP GET/POST /api/*"| API
+
+    ROUTER_ACCS & ROUTER_CLIS & ROUTER_REPS & ROUTER_TRNS & ROUTER_AGNT --> ORM
+    ORM -->|"Depends(get_db)\nSELECT / INSERT / UPDATE"| PG
+
+    RG1 -->|"add_task(_run_analysis)"| STEP1
+    STEP1 -->|"await llm.ainvoke()"| WXO
+    WXO -->|"JSON response"| STEP1
+    STEP2 -->|"tool_call via bind_tools"| WXO
+    MCP_LOAD -->|"SSE / StreamableHTTP"| MCP_SRV
+    MCP_SRV -->|"tool results"| STEP2
+    WXO -->|"enriched JSON"| STEP2
+
+    STEP1 -->|"UPDATE status=processing"| T_TRNS
+    STEP2 -->|"INSERT client_updates"| T_UPDS
+    STEP2 -->|"INSERT opportunities\nUPDATE status=completed|failed"| T_OPPS
+```
+
 ## Quick Start
 
 ### 1. Prerequisites
